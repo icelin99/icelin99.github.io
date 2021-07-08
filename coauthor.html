@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<script type="text/javascript" src="https://d3js.org/d3.v6.min.js"></script>
+	<title>coauthor graph</title>
+	<style>
+        .links line{
+            fill: none;
+            stroke-width: 2px;
+            stroke: #A1A1A1;
+        }
+        .nodes circle{
+            cursor: move;
+            pointer-events: all;
+            stroke: darkgray;
+            stroke-width: 3px;
+            stroke-opacity: 0.2;
+        }
+        .highlight{
+            fill:  red;
+        }
+
+        div{
+            position: absolute;
+            left: 460px;
+            top: -50px;
+        }
+	</style>
+</head>
+<body>
+<svg id="svg1" width="480" height="600"></svg>
+<div id="svg2">loading</div>
+<script>
+
+	d3.json("coauthor.json").then(function (graph) {
+		let subnodes = [];
+		for (let i = 0; i < graph.nodes.length; i++) {
+			if (graph.nodes[i].dept === "CSE")
+				subnodes.push({
+					"itsc": graph.nodes[i].itsc,
+					"dept": graph.nodes[i].dept,
+					"id": graph.nodes[i].id,
+					"index":i
+				});
+		}
+		let sublinks = [];
+		let source_CSE, target_CSE;
+		for (let i = 0; i < graph.edges.length; i++) {
+			source_CSE = false;
+			target_CSE = false;
+			for (let j = 0; j < subnodes.length; j++) {
+				if (graph.edges[i].source === subnodes[j].id) {
+					source_CSE = true;
+					break;
+				}
+			}
+			for (let k = 0; k < subnodes.length; k++) {
+				if (graph.edges[i].target === subnodes[k].id) {
+					target_CSE = true;
+					break;
+				}
+			}
+			if (source_CSE && target_CSE)
+				//console.log(graph.edges[i].source);
+				sublinks.push({
+					"source": graph.edges[i].source, "target": graph.edges[i].target,
+					"publications": graph.edges[i].publications
+				});
+		}
+		let nodes = subnodes.map(item =>
+			Object.assign({}, item, {"publications": GetPublications(item)})
+		);
+		/*console.log(sublinks);
+		console.log(nodes[0]);*/
+		let matrix = [], count = 0;
+		for(let i = 0 ; i < nodes.length; i++){
+			let row = [];
+			for(let j = 0; j < nodes.length; j++){
+				let grid = {x: i, y:j, weight: 0};
+				for (let k = 0; k < sublinks.length; k++) {
+					if (sublinks[k].source === nodes[grid.x].id && sublinks[k].target === nodes[grid.y].id
+						|| sublinks[k].source === nodes[grid.y].id && sublinks[k].target === nodes[grid.x].id) {
+						grid.weight = 1;
+						break;
+					}
+				}
+				row.push(grid);
+			}
+			matrix.push(row);
+		}
+		function GetPublications(d) {
+			let count = 0;
+			for (let i in sublinks) {
+				if (sublinks[i].source === d.id || sublinks[i].target === d.id)
+					count += sublinks[i].publications.length;
+			}
+			return count;
+		}
+
+		renderFDDiagram(sublinks,nodes);
+		renderAdjMatrix(matrix,nodes);
+	}).catch(function (error) {
+		console.log("Error loading the data");
+	});
+	let node_select = [];
+
+
+	function renderFDDiagram (links, nodes) {
+
+		const svg = d3.select("#svg1");
+		const width = +svg.attr("width"),
+			height = +svg.attr("height");
+		const color = d3.scaleOrdinal(d3.schemeCategory10);
+		const radius = d3.scaleLinear().domain([0, 40]).range([5, 10]);
+		const g = svg.append("g");
+		svg.attr("viewBox",[-100,100,800,600]);
+
+		const simulation = d3.forceSimulation(nodes)
+			.force("link", d3.forceLink(links)
+				.id(function (d) { return d.id; }))
+			.force("charge", d3.forceManyBody().strength(-250))
+			.force('center', d3.forceCenter(width / 2, height / 2));
+		let transform = d3.zoomIdentity;
+
+		svg.call(d3.zoom()
+			.scaleExtent([1 / 2, 5])
+			.on("zoom", function (d) {
+				link.attr('transform', (transform = d.transform));
+				node.attr('transform', (transform = d.transform));
+			}));
+
+		const link = g
+			.attr("stroke", "#d3d3d3")
+			.selectAll("line")
+			.data(links)
+			.join("line")
+			.style('opacity', 0.3)
+			.style("stroke-width","3px")
+			.attr("id", d => "L"+d.source.id+"-"+d.target.id);
+		const node = g
+			.attr("class", "nodes")
+			.selectAll("circle")
+			.data(nodes)
+			.join("circle")
+			.attr("r", function (d) {
+				return radius(d.publications);
+			})
+			.attr("fill", function (d) {
+				return color((d.id) % 10);})
+			.style('stroke-opacity', 0.3)
+			.call(drag(simulation))
+			.on("mouseover", onMouseOver)
+			.on("mouseout", onMouseOut)
+			.on("click", (event,dat) =>{
+				console.log(dat);
+				let path = event.path || (event.composedPath && event.composedPath());
+				let id = path[0].__data__.index;
+				console.log(id);
+				d3.selectAll("rect")
+					.style('stroke-width', 1)
+					.style('stroke', '#C0C0BB');
+
+				d3.select(node_select[0])
+					.style('stroke', '#C0C0BB')
+					.style('stroke-width', 1);
+				d3.select(node_select[1])
+					.style('stroke', '#C0C0BB')
+					.style('stroke-width', 1);
+
+				for(let i = 0; i <= nodes.length; i++){
+					d3.select('#d' + i + '-' + id)
+						.style('stroke-width', 3)
+						.style('stroke', 'red');
+					d3.select('#d' + id + '-' + i)
+						.style('stroke-width', 3)
+						.style('stroke', 'red');
+				}
+				d3.select('#text1')
+					.attr("font-size","18px")
+					.text('Selected node: ' + path[0].__data__.itsc + ', row and column has been highlighted.');
+			});
+
+
+		simulation.on("tick", ticked);
+
+
+		function ticked() {
+			link.attr("x1", function (d) {
+				return d.source.x;
+			})
+				.attr("y1", function (d) {
+					return d.source.y;
+				})
+				.attr("x2", function (d) {
+					return d.target.x;
+				})
+				.attr("y2", function (d) {
+					return d.target.y;
+				});
+			node.attr("cx", function (d) {
+				return d.x;
+			})
+				.attr("cy", function (d) {
+					return d.y;
+				});
+		}
+
+
+		function onMouseOver(event, d) {
+			d3.select(this).attr('class', 'highlight');
+
+			g.append("text")
+				.attr("class", "text")
+				.attr("r", 10)
+				.attr("x", function () {return d.x;})
+				.attr("y", function () {return d.y;})
+				.attr("transform", "translate(-10,-15)")
+				.style("fill", "royalblue")
+				.style("font-size", "25px")
+				.style("text-anchor", "middle")
+				.text(function () {
+					return d.itsc;
+				})
+		}
+
+		function onMouseOut() {
+			d3.select(this).attr('class', 'nodes');
+			d3.selectAll('.text')
+				.remove();
+		}
+
+		return svg.node();
+	}
+
+	const svgSize = 3200;
+	const gridSize = 7.5;
+
+	const renderAdjMatrix = function (matrix, nodes){
+		const width = 660, height = 960;
+		const gridSize = 12;
+		const svg2 = d3.select("#svg2")
+			.append('svg')
+			.attr("width",width)
+			.attr("height",height)
+			.append("g")
+			.attr("transform","translate(20,20)");
+		svg2.append("text")
+			.attr("id","text1")
+			.attr("font-size","18px")
+			.attr("transform","translate(20,50)")
+			.style("text-anchor","start")
+			.text("Adjacency Matrix View");
+		console.log(matrix,nodes);
+		// print x-Axis
+		svg2.append("g")
+			.attr("transform","translate(40,105)")
+			.selectAll("text")
+			.data(nodes)
+			.enter()
+			.append("text")
+			.attr("transform","rotate(-90)")
+			.attr("y",function (d,i) {
+				return d.index*gridSize;})
+			.text(function (d,i) {
+				return d.itsc;})
+			.style("font-size","10px");
+		//print y-Axis
+		svg2.append("g")
+			.attr("transform","translate(28,116)")
+			.selectAll("text")
+			.data(nodes)
+			.enter()
+			.append("text")
+			.attr("y",function (d,i)
+			{ return d.index*gridSize;})
+			.text(function (d){ return d.itsc;})
+			.style("font-size","10px")
+			.style("text-anchor","end");
+		//matrix graph
+		matrix.forEach( (m,i) =>
+		{
+			const rect = svg2.append("g")
+				.attr("transform", "translate(30,108)")
+				.selectAll("rect")
+				.data(m)
+				.enter()
+				.append("rect")
+				.attr("x", function (d) {
+					return d.x*gridSize;
+				})
+				.attr("y", function (d) {
+					return d.y*gridSize;
+				})
+				.attr('fill-opacity', d => d.weight)
+				.style("stroke", "#f8f8f8")
+				.style("stroke-width","2px")
+				.attr("fill", function (d) {
+					if (d.weight) return "#5f9ea0";
+					else return "#d3d3d3";
+				})
+				.attr("width", gridSize)
+				.attr("height", gridSize)
+				.attr("id", d => 'd'+d.x+'-'+d.y)
+				.on("click",(event,dat) =>{
+					let path = event.path || (event.composedPath && event.composedPath());
+					let id = path[0].id;
+					console.log(id); //d0-0
+					d3.selectAll('rect')
+						.style('stroke', '#C0C0BB')
+						.style('stroke-width', 1);
+					d3.select('#'+ id)
+						.style('stroke', 'red')
+						.style('stroke-width', 2.5);
+					//cancel select in node link diagram
+					d3.select(node_select[0])
+						.style('stroke', '#C0C0BB')
+						.style('stroke-width', 1);
+					d3.select(node_select[1])
+						.style('stroke', '#C0C0BB')
+						.style('stroke-width', 1);
+					let op = path[0].attributes['fill-opacity'].nodeValue;
+					console.log("op="+op);
+					let id1,id2;
+					let tmp = id.split('d'); //["","1-1"]
+					let tar = tmp[1].split('-');//["1","1"]
+					for(let i = 0; i < nodes.length; i++){
+						if(nodes[i].index == tar[0])
+						{
+							id1=nodes[i].itsc;
+							break;
+						}
+					}
+					for(let i = 0; i < nodes.length; i++){
+						if(nodes[i].index == tar[1])
+						{
+							id2=nodes[i].itsc;
+							break;
+						}
+					}
+					console.log(tar,id1,id2);
+					if((path[0].attributes['fill-opacity'].nodeValue) != '0'){
+						d3.select('#l'+ tar[0] + '-' + tar[1])
+							.style('stroke-width', '3')
+							.style('stroke', 'red');
+						d3.select('#l' + tar[1] + '-' + tar[0])
+							.style('stroke-width', '3')
+							.style('stroke', 'red');
+
+						node_select =
+							['#l'+ tar[0] + '-' + tar[1],
+								'#l' + tar[1] + '-' + tar[0]]; //["#l17-21","#l21-17"]
+						console.log(node_select);
+						d3.select('#text1')
+							.text('Edge between '+id1+' and '+id2+' has been selected');
+
+					}
+					else {
+						d3.select('#text1')
+							.text("There's no edge between "+id1+' and '+id2);
+					}
+
+				})
+			;
+		});
+	}
+	const drag = simulation => {
+		function dragStarted (event) {
+			if (!event.active) simulation.alphaTarget(0.5).restart();
+			event.subject.fx = event.subject.x;
+			event.subject.fy = event.subject.y;
+		}
+
+		function dragged (event) {
+			event.subject.fx = event.x;
+			event.subject.fy = event.y;
+		}
+
+		function dragEnded (event) {
+			if (!event.active) simulation.alphaTarget(0);
+			event.subject.fx = null;
+			event.subject.fy = null;
+		}
+
+		return d3.drag()
+			.on('start', dragStarted)
+			.on('drag', dragged)
+			.on('end', dragEnded)
+	}
+
+</script>
+
+</body>
+</html>

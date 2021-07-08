@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<script type="text/javascript" src="https://d3js.org/d3.v6.min.js"></script>
+	<title>Year-Month-Day temperature</title>
+	<style>
+        .highlight{
+            fill: cyan;
+        }
+        .line1{
+            fill: none;
+            stroke: green;
+            stroke-width: 2px;
+        }
+        .line2{
+            fill: none;
+            stroke: mediumaquamarine;
+            stroke-width: 2px;
+        }
+        .legend_text{
+	        fill: lightslategrey;
+	        font-size: small;
+        }
+	</style>
+</head>
+<body>
+	<script>
+		const margin = 30,
+			width = 1000,
+			height = 1000;
+		const svg = d3.select("body")
+				.append("svg")
+				.attr("width", width)
+				.attr("height", height)
+				.append("g")
+				.attr("transform","translate("+margin+","+margin+")");
+		const colors = ["#5E4FA2", "#3288BD", "#66C2A5", "#ABDDA4", "#E6F598",
+			"#FFFFBF", "#FEE08B", "#FDAE61", "#F46D43", "#D53E4F", "#9E0142"];
+		const Month = ["January" ,"February","March","April","May",
+			"June","July","August","September","October",
+			"November","December"];
+		const colorsclae = d3.scaleQuantile()
+			.domain([0,39])
+			.range(colors);
+		/*svg.append("text")
+			.attr("transform", "translate(100,50)")
+			.text("Monthly Temperature of Hong Kong");*/
+		//create scale range
+		let x = d3.scaleBand()
+			.range([margin,width-margin*3])
+			.padding(0.2),
+			y = d3.scaleBand()
+			.range([margin,height-margin])
+			.padding(0.2);
+		let dataset = [],  YM = [];
+		//处理data，储存在数组dataset中
+		d3.csv("temperature_daily.csv").then(function (data){
+			let year,month,day,max,min;
+
+			for(let i = 0; i < data.length; i++) {
+				year = parseInt(data[i].date.substring(0, 4));
+				month = parseInt(data[i].date.substring(5, 7));
+				day = parseInt(data[i].date.substring(8, 10));
+				max = parseInt(data[i].max_temperature);
+				min = parseInt(data[i].min_temperature);
+				if(year < 2008)
+					continue;
+				dataset.push({"year":year,"month":month,"day":day, "max_temperature":max,"min_temperature":min});
+			}
+
+			//画轴线
+			//为什么画轴线的语句放在.csv操作外面，x轴domain不能正常显示
+			x.domain(dataset.map(function (d){ return d.year;}))
+			y.domain(["January" ,"February","March","April","May",
+				"June","July","August","September","October",
+				"November","December"])
+			svg.append("g")
+				.attr("transform","translate(0,"+margin+")")
+				.call(d3.axisTop(x))
+			svg.append("g")
+				.attr("transform","translate("+margin+",0)")
+				.call(d3.axisLeft(y))
+
+			//画方块图,每年每月的最大值最小值为一个数组单位
+
+			max = dataset[0].max_temperature;
+			min = dataset[0].min_temperature;
+			for(let i = 1; i < dataset.length; i++){
+				if(dataset[i].year === dataset[i-1].year &&
+				  dataset[i].month === dataset[i-1].month){
+					if(dataset[i].max_temperature > max)
+						max = dataset[i].max_temperature;
+					if(dataset[i].min_temperature < min)
+						min = dataset[i].min_temperature;
+				}
+				else{
+					YM.push({"year":dataset[i-1].year, "month":dataset[i-1].month,"max_temperature":max,"min_temperature":min});
+					max = dataset[i].max_temperature;
+					min = dataset[i].min_temperature;
+				}
+				if(i === dataset.length-1)
+					YM.push({"year":dataset[i].year, "month":dataset[i].month,"max_temperature":max,"min_temperature":min});
+			}
+
+			//画方块
+			svg.selectAll(".band")
+				.data(YM)
+				.enter()
+				.append("rect")
+				.attr("class","band")
+				.on("mouseover", onMouseOver)
+				.on("mouseout", onMouseOut)
+				.attr("x", function (d){
+					return x(d.year); })
+				.attr("y", function (d) {
+					return y(Month[d.month -1]);})
+				.attr("rx", 10)
+				.attr("ry", 10)
+				.transition().ease(d3.easeLinear)
+				.duration(200)
+				.delay(function (d) {
+					return d.year-1950 + d.month; })
+				.attr("width", x.bandwidth())
+				.attr("height", y.bandwidth())
+				.style("fill", function (d) {
+					return colorsclae(d.max_temperature);} );
+
+			//画折线图
+			let xLScale = d3.scaleLinear()
+				.domain([1,31])
+				.range([2,x.bandwidth()-2]);
+			let yLScale = d3.scaleLinear()
+				.domain([0,39])
+				.range([y.bandwidth()-2,2]);
+			let line1 = d3.line()
+				.x(function (d) {
+					return x(d.year)+xLScale(d.day);})
+				.y(function (d) {
+					return y(Month[d.month-1])+yLScale(d.max_temperature);})
+
+			let line2 = d3.line()
+				.x(function (d) {
+					return x(d.year)+xLScale(d.day);})
+				.y(function (d) {
+					return y(Month[d.month-1])+yLScale(d.min_temperature);});
+
+			year = dataset[0].year;
+			month = dataset[0].month;
+			let newarr = [];
+			for(let i = 1; i < dataset.length; i++) {
+				if(dataset[i].year === year && dataset[i].month === month && i !== dataset.length-1) {
+					continue;
+				}
+				newarr = dataset.filter(function (d) {
+					return d.year === year && d.month === month;
+				})
+				svg.append("path")
+					.attr("class", "line1")
+					.attr("d", line1(newarr));
+				svg.append("path")
+					.attr("class", "line2")
+					.attr("d", line2(newarr));
+				year = dataset[i].year;
+				month = dataset[i].month;
+			}
+
+		}).catch(function (error){
+			console.error("Error loading the data");});
+
+
+		//添加图例
+		let pad =20,legend_width = width-margin*3, legend_height = margin+50;
+		let legend = [{"x":0,"y":0},{"x":0,"y":20},{"x":0,"y":40},
+					{"x":0,"y":60},{"x":0,"y":80},{"x":0,"y":100},
+					{"x":0,"y":120},{"x":0,"y":140},{"x":0,"y":160},
+					{"x":0,"y":180},{"x":0,"y":200}];
+		svg.selectAll(".legend")
+			.append("g")
+			.data(legend)
+			.enter()
+			.append("rect")
+			.attr("class","legend")
+			.attr("transform", "translate("+legend_width+","+legend_height+")")
+			.attr("x",function (d) {return d.x;})
+			.attr("y",function (d) {return d.y;})
+			.attr("width", 20)
+			.attr("height",20)
+			.style("fill",function (d) { return colors[d.y/20];});
+		let text_width = width-margin*3+pad, text_height = margin+50, text_height2 = text_height+ pad*11;
+		svg.append("text")
+			.attr("class","legend_text")
+			.attr("transform", "translate("+text_width+","+text_height+")")
+			.text("0 celsius")
+		svg.append("text")
+			.attr("class","legend_text")
+			.attr("transform", "translate("+text_width+","+text_height2+")")
+			.text("40 celsius")
+
+
+		function onMouseOver(event,d){
+			d3.select(this)
+				.attr('class','highlight');
+			d3.select(this)
+				.transition()
+				.duration(300)
+				.attr('width', x.bandwidth() + 5)
+				.attr('height', y.bandwidth() + 5);
+			svg.append("text")
+				.attr('class', 'val')
+				.attr('x', function (){ return x(d.year);})
+				.attr('y', function (){ return y(Month[d.month -1]);})
+				.attr("text-anchor","start")
+				.style("fill","royalblue")
+				.style("font-size","9pt")
+				.text(function (){return "Date: "+d.year+"-"+d.month+"; max: "+d.max_temperature+"; min: "+d.min_temperature ; } )
+		}
+		function onMouseOut(event,d){
+			d3.select(this)
+				.attr('class', 'band');
+			d3.select(this)
+				.transition()
+				.duration(300)
+				.attr('width', x.bandwidth())
+				.attr('height', y.bandwidth());
+			d3.selectAll('.val')
+				.remove();
+		}
+
+	</script>
+
+</body>
+</html>
